@@ -8,7 +8,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
-// Counter untuk menghitung jumlah permintaan
+// Counter to count the number of requests
 var requestCount = prometheus.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "http_requests_total",
@@ -17,7 +17,7 @@ var requestCount = prometheus.NewCounterVec(
 	[]string{"method", "endpoint"},
 )
 
-// Counter untuk menghitung jumlah kesalahan
+// Counter to count the number of errors
 var errorCount = prometheus.NewCounterVec(
 	prometheus.CounterOpts{
 		Name: "http_errors_total",
@@ -26,17 +26,26 @@ var errorCount = prometheus.NewCounterVec(
 	[]string{"method", "endpoint"},
 )
 
-// Histogram untuk mengukur latensi permintaan
+// Histogram to measure request latency
 var requestLatency = prometheus.NewHistogramVec(
 	prometheus.HistogramOpts{
 		Name:    "http_request_latency_seconds",
 		Help:    "Request latency in seconds",
-		Buckets: prometheus.LinearBuckets(0.1, 0.1, 10), // Rentang bucket 0.1 detik hingga 1 detik
+		Buckets: prometheus.LinearBuckets(0.1, 0.1, 10),
 	},
-	[]string{"method"},
+	[]string{"method", "endpoint"},
 )
 
-// Gauge untuk menghitung jumlah koneksi aktif
+// Gauge to track memory usage
+var memoryUsage = prometheus.NewGaugeVec(
+	prometheus.GaugeOpts{
+		Name: "app_memory_usage",
+		Help: "Memory usage of the application",
+	},
+	[]string{"endpoint"},
+)
+
+// Gauge to count active connections
 var activeConnections = prometheus.NewGauge(
 	prometheus.GaugeOpts{
 		Name: "active_connections",
@@ -45,87 +54,81 @@ var activeConnections = prometheus.NewGauge(
 )
 
 func main() {
-	// Inisialisasi Prometheus
+	// Initialize Prometheus
 	prometheus.MustRegister(requestCount)
 	prometheus.MustRegister(errorCount)
 	prometheus.MustRegister(requestLatency)
 	prometheus.MustRegister(activeConnections)
+	prometheus.MustRegister(memoryUsage)
 
-	// Membuat router Gin
+	// Create a Gin router
 	router := gin.Default()
 
-	// Endpoint untuk menambahkan tugas baru
-	router.POST("/todo", func(c *gin.Context) {
-		// Logika untuk menambahkan tugas
-		// ...
-
-		endpoint := c.FullPath() // Get the endpoint path
-		method := "GET"          // Set the HTTP method
-
-		// Increment request metric in Prometheus with method and endpoint labels
-		requestCount.WithLabelValues(method, endpoint).Inc()
-
-		c.JSON(200, gin.H{"message": "Task added successfully"})
-	})
-
-	// Endpoint untuk mengambil semua tugas
-	router.GET("/todo", func(c *gin.Context) {
-		// Logika untuk mengambil tugas
-		// ...
-
-		endpoint := c.FullPath() // Get the endpoint path
-		method := "GET"          // Set the HTTP method
-
-		// Increment request metric in Prometheus with method and endpoint labels
-		requestCount.WithLabelValues(method, endpoint).Inc()
-
-		// Menambahkan metrik ke Prometheus
-		// requestCount.WithLabelValues("GET").Inc()
-
-		c.JSON(200, gin.H{"tasks": []string{"Task 1", "Task 2"}})
-	})
-
-	// Endpoint to delete a task
-	router.DELETE("/todo/:id", func(c *gin.Context) {
-		// Logic to delete a task
-		// ...
-
-		endpoint := c.FullPath() // Get the endpoint path
-		method := "DELETE"       // Set the HTTP method
-
-		// Increment request metric in Prometheus with method and endpoint labels
-		requestCount.WithLabelValues(method, endpoint).Inc()
-
-		c.JSON(200, gin.H{"message": "Task deleted successfully"})
-	})
-
-	// Middleware untuk menangkap kesalahan
+	// Add middleware to capture errors and collect metrics
 	router.Use(func(c *gin.Context) {
 		start := time.Now()
 		c.Next()
 		latency := float64(time.Since(start).Seconds())
 
-		// Menambahkan metrik latensi ke Prometheus
-		requestLatency.WithLabelValues(c.Request.Method).Observe(latency)
+		method := c.Request.Method
+		endpoint := c.FullPath()
+
+		// Increment request count metric with method and endpoint labels
+		requestCount.WithLabelValues(method, endpoint).Inc()
+
+		// Add latency metric to Prometheus with method and endpoint labels
+		requestLatency.WithLabelValues(method, endpoint).Observe(latency)
+
+		// Add memory usage metric to Prometheus with endpoint label
+		memoryUsage.WithLabelValues(endpoint).Set(float64(getMemoryUsage()))
+
 		activeConnections.Set(float64(getActiveConnections()))
 
-		// Menambahkan metrik kesalahan ke Prometheus
+		// Increment error count metric in Prometheus with method and endpoint labels
 		if c.Writer.Status() >= 400 {
-			errorCount.WithLabelValues(c.Request.Method, c.Request.URL.Path).Inc()
+			errorCount.WithLabelValues(method, endpoint).Inc()
 		}
 	})
 
-	// Endpoint Prometheus untuk mengumpulkan metrik
+	// Add routes
+	router.GET("/todo", func(c *gin.Context) {
+		c.JSON(200, gin.H{"message": "GET /todo"})
+	})
+
+	router.POST("/todo", func(c *gin.Context) {
+		c.JSON(200, gin.H{"message": "POST /todo"})
+	})
+
+	router.DELETE("/todo/:id", func(c *gin.Context) {
+		c.JSON(200, gin.H{"message": "DELETE /todo"})
+	})
+
+	// Add endpoint for Prometheus to scrape metrics
 	router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
-	// Menjalankan server
+	// Fallback route to handle undefined endpoints
+	router.NoRoute(func(c *gin.Context) {
+		endpoint := c.Request.URL.Path // Get the endpoint path
+		method := c.Request.Method     // Get the HTTP method
+
+		// Increment request metric in Prometheus with method and endpoint labels
+		requestCount.WithLabelValues(method, endpoint).Inc()
+		errorCount.WithLabelValues(method, endpoint).Inc()
+
+		c.JSON(404, gin.H{"message": "Endpoint not found"})
+	})
+
+	// Run the server
 	router.Run(":8081")
+
 }
 
-// Fungsi untuk mendapatkan jumlah koneksi aktif (contoh fiktif)
 func getActiveConnections() int {
-	// Logika untuk menghitung jumlah koneksi aktif
-	// ...
+	// Logic to count active connections
+	return 10
+}
 
-	return 10 // Contoh: Mengembalikan jumlah koneksi aktif (misalnya 10)
+func getMemoryUsage() int {
+	// Logic to calculate memory usage
+	return 100
 }
