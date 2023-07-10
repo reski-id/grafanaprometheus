@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -53,6 +54,15 @@ var activeConnections = prometheus.NewGauge(
 	},
 )
 
+// Counter for tracking the total number of scrapes by HTTP status code
+var scrapeRequestsTotal = prometheus.NewCounterVec(
+	prometheus.CounterOpts{
+		Name: "promhttp_metric_handler_requests_total",
+		Help: "Total number of scrapes by HTTP status code.",
+	},
+	[]string{"code"},
+)
+
 func main() {
 	// Initialize Prometheus
 	prometheus.MustRegister(requestCount)
@@ -60,6 +70,7 @@ func main() {
 	prometheus.MustRegister(requestLatency)
 	prometheus.MustRegister(activeConnections)
 	prometheus.MustRegister(memoryUsage)
+	prometheus.MustRegister(scrapeRequestsTotal)
 
 	// Create a Gin router
 	router := gin.Default()
@@ -69,6 +80,7 @@ func main() {
 		start := time.Now()
 		c.Next()
 		latency := float64(time.Since(start).Seconds())
+		code := strconv.Itoa(c.Writer.Status())
 
 		method := c.Request.Method
 		endpoint := c.FullPath()
@@ -83,6 +95,9 @@ func main() {
 		memoryUsage.WithLabelValues(endpoint).Set(float64(getMemoryUsage()))
 
 		activeConnections.Set(float64(getActiveConnections()))
+
+		// Increment the scrape requests metric with the corresponding status code
+		scrapeRequestsTotal.WithLabelValues(code).Inc()
 
 		// Increment error count metric in Prometheus with method and endpoint labels
 		if c.Writer.Status() >= 400 {
@@ -100,7 +115,32 @@ func main() {
 	})
 
 	router.DELETE("/todo/:id", func(c *gin.Context) {
-		c.JSON(200, gin.H{"message": "DELETE /todo"})
+		start := time.Now()
+		id := c.Param("id") // Get the actual ID value from the request
+
+		// Logic to delete the task with the given ID
+		// ...
+
+		endpoint := "/todo/" + id // Set the endpoint path with the real ID
+		method := "DELETE"        // Set the HTTP method
+
+		// Increment request metric in Prometheus with method and endpoint labels
+		requestCount.WithLabelValues(method, endpoint).Inc()
+
+		// Add latency metric to Prometheus with method and endpoint labels
+		requestLatency.WithLabelValues(method, endpoint).Observe(float64(time.Since(start).Seconds()))
+
+		// Add memory usage metric to Prometheus with endpoint label
+		memoryUsage.WithLabelValues(endpoint).Set(float64(getMemoryUsage()))
+
+		activeConnections.Set(float64(getActiveConnections()))
+
+		// Increment error count metric in Prometheus with method and endpoint labels
+		if c.Writer.Status() >= 400 {
+			errorCount.WithLabelValues(method, endpoint).Inc()
+		}
+
+		c.JSON(200, gin.H{"message": "Task deleted successfully", "id": id})
 	})
 
 	// Add endpoint for Prometheus to scrape metrics
