@@ -14,7 +14,7 @@ var requestCount = prometheus.NewCounterVec(
 		Name: "http_requests_total",
 		Help: "Total number of HTTP requests",
 	},
-	[]string{"method"},
+	[]string{"method", "endpoint"},
 )
 
 // Counter untuk menghitung jumlah kesalahan
@@ -59,8 +59,11 @@ func main() {
 		// Logika untuk menambahkan tugas
 		// ...
 
-		// Menambahkan metrik ke Prometheus
-		requestCount.WithLabelValues("POST").Inc()
+		endpoint := c.FullPath() // Get the endpoint path
+		method := "GET"          // Set the HTTP method
+
+		// Increment request metric in Prometheus with method and endpoint labels
+		requestCount.WithLabelValues(method, endpoint).Inc()
 
 		c.JSON(200, gin.H{"message": "Task added successfully"})
 	})
@@ -70,19 +73,28 @@ func main() {
 		// Logika untuk mengambil tugas
 		// ...
 
+		endpoint := c.FullPath() // Get the endpoint path
+		method := "GET"          // Set the HTTP method
+
+		// Increment request metric in Prometheus with method and endpoint labels
+		requestCount.WithLabelValues(method, endpoint).Inc()
+
 		// Menambahkan metrik ke Prometheus
-		requestCount.WithLabelValues("GET").Inc()
+		// requestCount.WithLabelValues("GET").Inc()
 
 		c.JSON(200, gin.H{"tasks": []string{"Task 1", "Task 2"}})
 	})
 
-	// Endpoint untuk menghapus tugas
+	// Endpoint to delete a task
 	router.DELETE("/todo/:id", func(c *gin.Context) {
-		// Logika untuk menghapus tugas
+		// Logic to delete a task
 		// ...
 
-		// Menambahkan metrik ke Prometheus
-		requestCount.WithLabelValues("DELETE").Inc()
+		endpoint := c.FullPath() // Get the endpoint path
+		method := "DELETE"       // Set the HTTP method
+
+		// Increment request metric in Prometheus with method and endpoint labels
+		requestCount.WithLabelValues(method, endpoint).Inc()
 
 		c.JSON(200, gin.H{"message": "Task deleted successfully"})
 	})
